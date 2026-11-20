@@ -44,10 +44,14 @@ def read_file(filename: str) -> str:
         return f"Error reading file: {error}"
 
 
+
 def create_file(filename: str, content: str) -> str:
     """
     Safely create a new file inside the CodePilot project directory.
+    Validate Python syntax before creating Python files.
     """
+
+    import ast
 
     try:
         file_path = (PROJECT_DIR / filename).resolve()
@@ -64,6 +68,19 @@ def create_file(filename: str, content: str) -> str:
         ):
             return "Error: Creating sensitive configuration files is blocked."
 
+        if not isinstance(content, str):
+            return "Error: File content must be text."
+
+        # Validate syntax before creating Python files
+        if file_path.suffix.lower() == ".py":
+            try:
+                ast.parse(content)
+            except SyntaxError as error:
+                return (
+                    f"Error: Syntax error on line {error.lineno}: "
+                    f"{error.msg}"
+                )
+
         if file_path.exists():
             return f"Error: File '{filename}' already exists."
 
@@ -74,6 +91,7 @@ def create_file(filename: str, content: str) -> str:
 
     except (OSError, ValueError, RuntimeError) as error:
         return f"Error creating file: {error}"
+
 
 
 def run_python_file(filename: str, input_text: str = "") -> str:
@@ -162,10 +180,14 @@ def run_python_file_interactive(filename: str) -> str:
         return "Program execution interrupted by user."
 
 
+
 def edit_file(filename: str, new_content: str) -> str:
     """
     Safely update an existing Python file inside the project directory.
+    Validate syntax before writing changes.
     """
+
+    import ast
 
     try:
         file_path = (PROJECT_DIR / filename).resolve()
@@ -189,12 +211,25 @@ def edit_file(filename: str, new_content: str) -> str:
         if not file_path.exists() or not file_path.is_file():
             return f"Error: File '{filename}' does not exist."
 
+        if not isinstance(new_content, str):
+            return "Error: File content must be text."
+
+        # Validate syntax before modifying the file
+        try:
+            ast.parse(new_content)
+        except SyntaxError as error:
+            return (
+                f"Error: Syntax error on line {error.lineno}: "
+                f"{error.msg}"
+            )
+
         file_path.write_text(new_content, encoding="utf-8")
 
         return f"Successfully updated '{filename}'."
 
     except (OSError, ValueError, RuntimeError) as error:
         return f"Error editing file: {error}"
+
 
 if __name__ == "__main__":
 
@@ -208,28 +243,57 @@ if __name__ == "__main__":
     print(result)
 
 
+
 def inspect_project() -> str:
     """
-    List the files and folders inside the CodePilot project directory.
+    List relevant files and folders inside the CodePilot project directory.
+    Exclude development settings, temporary tests and sensitive files.
     """
     try:
         items = []
 
+        ignored_directories = {
+            ".venv",
+            "__pycache__",
+            ".git",
+            ".vscode",
+        }
+
+        ignored_files = {
+            ".env",
+            "secrets.toml",
+            "bug_test.py",
+            "debug_test.py",
+        }
+
         for path in sorted(PROJECT_DIR.rglob("*")):
-            if (
-                ".venv" in path.parts
-                or "__pycache__" in path.parts
-                or ".git" in path.parts
-                or path.name in {".env", "secrets.toml"}
+
+            relative_path = path.relative_to(PROJECT_DIR)
+
+            # Skip ignored directories and their contents
+            if any(
+                part.lower() in ignored_directories
+                for part in relative_path.parts
+            ):
+                continue
+
+            # Skip sensitive and temporary files
+            if path.name.lower() in ignored_files:
+                continue
+
+            if path.name.lower().startswith(".env."):
+                continue
+
+            if path.is_file() and (
+                path.name.lower().startswith("test_")
+                or path.name.lower().endswith("_test.py")
             ):
                 continue
 
             if path.is_file():
-                relative_path = path.relative_to(PROJECT_DIR)
                 items.append(f"FILE: {relative_path}")
 
             elif path.is_dir():
-                relative_path = path.relative_to(PROJECT_DIR)
                 items.append(f"FOLDER: {relative_path}")
 
         if not items:
@@ -239,7 +303,6 @@ def inspect_project() -> str:
 
     except OSError as error:
         return f"Project inspection error: {error}"
-
 
 def read_project_context(max_files: int = 10) -> str:
     """
